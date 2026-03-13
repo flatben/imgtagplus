@@ -25,6 +25,7 @@ ImgTagPlus is a local-first image-tagging tool that scans images on disk, runs a
 - `florence-2-large` performs the same caption-driven extraction with a larger model.
 - `threshold` applies to CLIP-style scoring and is clamped to the inclusive range `0.0..1.0`.
 - Florence backends ignore the `threshold` parameter; all extracted keywords are returned.
+- Florence-2 also generates compound keywords by detecting adjacent word pairs in the caption (e.g. "blue sky").
 - `max_tags` is clamped to the inclusive range `1..200`.
 
 ## XMP behavior
@@ -34,6 +35,21 @@ ImgTagPlus is a local-first image-tagging tool that scans images on disk, runs a
 - `--overwrite` replaces existing ImgTagPlus tags instead of merging.
 - Malformed existing XMP is treated as unreadable input and ignored with a warning rather than crashing the run.
 - XML-special characters in tags must be escaped correctly.
+
+## Zero-images behavior
+
+- When the scanner finds no supported images at the given path, `app.run()` returns exit code `0` but fires a progress callback with `(0, 0, "")` to signal an empty result.
+- The web server emits a WARNING log: "No images found at {path}."
+- The web UI shows a yellow "No Images Found" state instead of the green success bar.
+
+## Security
+
+- All HTTP responses include `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, and a restrictive `Content-Security-Policy`.
+- POST, PUT, and DELETE requests are subject to origin validation; only `localhost` and `127.0.0.1` origins are accepted.
+- Rate limiting is enforced per client IP on browse and tag endpoints.
+- SSE connections are limited to 5 concurrent clients.
+- The frontend escapes all server-provided strings before HTML interpolation to prevent XSS.
+- Florence-2 `trust_remote_code` is only enabled for model IDs in the pinned revision allowlist.
 
 ## Error handling
 

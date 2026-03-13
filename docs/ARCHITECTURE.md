@@ -77,6 +77,14 @@ Execution path:
 - Per-image failures are logged and then routed through `_prompt_on_error()` in `app.py`.
 - `--continue-on-error` skips prompts and keeps going.
 - `--silent` suppresses the prompt and aborts on the first image failure.
+- `--input-timeout` (default 30 s) controls how long the prompt waits before auto-skipping.
+
+### Zero-images behavior
+
+When the scanner finds no supported images at the input path:
+
+- `app.run()` calls `progress_callback(0, 0, "")` to signal an empty result, then returns `0`.
+- The web server emits a WARNING log and the frontend shows a yellow "No Images Found" state.
 
 ### 2. Interactive CLI manager flow
 
@@ -142,6 +150,7 @@ input path
    - generates a `<DETAILED_CAPTION>`
    - post-processes the generated text
    - extracts keywords from the caption
+   - preserves adjacent word pairs as compound tags (e.g. "blue sky")
    - returns `(keyword, 1.0)` tuples because this path does not expose per-tag confidence scores
 3. `app.py` writes the extracted keyword list to XMP.
 
@@ -204,6 +213,16 @@ Both `input` and `output_dir` are checked against the sandbox boundary before a 
 - Florence downloads also use that model directory and set `HF_HOME` to the same location
 - XMP sidecars persist on disk next to the source images or under the chosen output directory
 - log files are written into the current working directory unless `--log-file` overrides the path
+
+## Security design
+
+The server applies several layers of protection appropriate for a local tool:
+
+- **Request validation:** CSRF origin checking on mutating requests (POST/PUT/DELETE) — only `localhost`/`127.0.0.1` origins are accepted.
+- **Rate limiting:** Per-client-IP sliding window limits on browse (100/10 s), tag (10/10 s), and a semaphore cap on SSE connections (5 concurrent).
+- **Response hardening:** `Content-Security-Policy`, `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer` on every response.
+- **Frontend escaping:** `escapeHtml()` sanitises all server-provided strings before innerHTML interpolation.
+- **Model trust:** Florence-2 `trust_remote_code` is only enabled for model IDs in the pinned revision allowlist; community ONNX processor revisions are pinned.
 
 ## Design notes
 

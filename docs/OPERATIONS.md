@@ -2,6 +2,27 @@
 
 This short guide covers the local operational details that are easy to miss when reading only the user docs.
 
+## System requirements
+
+- **Python 3.10+** (enforced in `pyproject.toml` and checked by `setup.sh`)
+- Node.js / npm — optional, only needed to rebuild frontend CSS
+- OS: Linux, macOS, or Windows
+
+## Setup
+
+```bash
+# Full install (CLIP + Florence)
+bash setup.sh
+
+# Dev install (adds ruff, pytest, etc.)
+bash setup.sh --dev
+
+# CLIP-only install
+pip install -r requirements-clip.txt
+```
+
+`setup.sh` checks the Python version before proceeding and builds frontend CSS automatically when npm is available.
+
 ## Server lifecycle
 
 The web UI server is managed by `imgtagplus/cli.py`.
@@ -58,6 +79,22 @@ That means:
 - no persistent run history beyond logs and written XMP files
 
 If you need parallelism, launch separate local processes carefully and avoid overlapping writes to the same output locations.
+
+## Rate limiting
+
+The server enforces per-client-IP rate limits using a 10-second sliding window:
+
+| Endpoint | Limit |
+| --- | --- |
+| `GET /api/browse` | 100 requests / 10 s |
+| `POST /api/tag` | 10 requests / 10 s |
+| `GET /api/stream` | 5 concurrent SSE connections |
+
+Exceeding a limit returns HTTP 429. The limits are in-memory and reset when the server restarts.
+
+## Environment files
+
+Environment variables (e.g. `IMGTAGPLUS_FFSA`, `IMGTAGPLUS_SANDBOX_DIR`) can be set in `.env` files. The `.gitignore` excludes `.env*` patterns to prevent accidentally committing secrets or local overrides.
 
 ## Validation notes
 
