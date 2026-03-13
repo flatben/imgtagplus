@@ -148,7 +148,7 @@ Log file: /path/to/imgtagplus_20260210_190000.log
 
 ## Dependencies
 
-- Python 3.9+
+- Python 3.10+
 - `fastapi` & `uvicorn` — Web Server framework
 - `torch` & `transformers` — VLM inference via Florence-2
 - `onnxruntime` — CLIP model inference via ONNX

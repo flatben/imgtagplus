@@ -20,7 +20,23 @@ Every HTTP response receives these headers from middleware:
 - `Referrer-Policy: no-referrer`
 - restrictive `Content-Security-Policy`
 
-The UI is local-only and uses same-origin requests to the bundled static assets.
+POST, PUT, and DELETE requests are subject to origin validation. Only requests from `localhost` or `127.0.0.1` (any port) are accepted; requests with a foreign `Origin` header receive HTTP 403.
+
+### Rate limiting
+
+Endpoints are rate-limited per client IP using a sliding 10-second window:
+
+| Endpoint | Limit |
+| --- | --- |
+| `GET /api/browse` | 100 requests / 10 s |
+| `POST /api/tag` | 10 requests / 10 s |
+| `GET /api/stream` | 5 concurrent connections (semaphore) |
+
+Exceeding these limits returns HTTP 429 with `{"detail": "Rate limit exceeded"}` (or `"Too many SSE connections"` for streams).
+
+### Frontend XSS protection
+
+All server-provided strings (error messages, filenames, log content) are escaped via `escapeHtml()` before HTML interpolation in the frontend.
 
 ## Endpoint summary
 
@@ -304,9 +320,11 @@ Completion event:
 }
 ```
 
-Important detail:
+Important details:
 
 - the server stores a raw `{"type": "done"}` marker internally, but the SSE stream normalizes it into a `"progress"` event with `"done": true`
+- when `total` is `0` on the done event, this means no images were found — the frontend shows a yellow "No Images Found" state instead of green "Finished"
+- the server also emits a WARNING log event ("No images found at {path}") when this occurs
 
 #### Idle heartbeat
 
