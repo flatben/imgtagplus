@@ -1,3 +1,6 @@
+> [!WARNING]  
+> This project is in very early development stages and should not be relied on for production use.
+
 # ImgTagPlus
 
 **Bulk AI image tagger** — automatically tags images using CLIP (ViT-B/32) via ONNX Runtime and saves tags as XMP sidecar files, compatible with all major digital asset management (DAM) systems.
