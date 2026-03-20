@@ -64,6 +64,16 @@
   to { opacity: 1; transform: translateY(0); }
 }
 
+/* Terminal panel: fixed height so overflow-y-auto can scroll internally */
+#server-logs-card {
+  height: clamp(280px, 38vh, 520px);
+}
+
+/* Allow flex-1 child to shrink below content height so scroll triggers */
+#log-container {
+  min-height: 0;
+}
+
 /* Terminal scrollbar */
 #log-container::-webkit-scrollbar { width: 8px; }
 #log-container::-webkit-scrollbar-track { background: transparent; }

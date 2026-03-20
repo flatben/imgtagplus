@@ -19,6 +19,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const recursiveCheck = document.getElementById('recursive');
     const overwriteCheck = document.getElementById('overwrite');
     const startBtn = document.getElementById('start-btn');
+    const stopBtn = document.getElementById('stop-btn');
     const errorMsg = document.getElementById('error-msg');
     
     // Progress Elements
@@ -215,6 +216,16 @@ document.addEventListener('DOMContentLoaded', () => {
         if (typeof statusData.runtime_seconds === 'number') {
             renderRuntime(statusData.runtime_seconds);
         }
+    }
+
+    function resetProgressForNewRun() {
+        progressTitle.textContent = "Preparing";
+        progressFile.textContent = "Scanning files...";
+        progressPct.textContent = "0%";
+        progressCounts.textContent = "0 / 0 images";
+        progressBar.style.width = "0%";
+        progressBar.classList.remove('bg-green-500', 'bg-yellow-500', 'bg-red-500');
+        progressBar.classList.add('bg-primary');
     }
 
     function setSelectedAccelerator(value) {
@@ -564,6 +575,21 @@ document.addEventListener('DOMContentLoaded', () => {
 
     modelSelect.addEventListener('change', updateModelWarning);
     startBtn.addEventListener('click', startJob);
+    
+    stopBtn.addEventListener('click', async () => {
+        stopBtn.disabled = true;
+        try {
+            const res = await fetch('/api/stop', { method: 'POST' });
+            if (!res.ok) {
+                const data = await res.json();
+                throw new Error(data.detail || 'Failed to stop job');
+            }
+        } catch (e) {
+            errorMsg.textContent = 'Error stopping job: ' + e.message;
+            errorMsg.classList.remove('hidden');
+            stopBtn.disabled = false;
+        }
+    });
     showTaggerViewBtn.addEventListener('click', () => setActiveView('tagger'));
     showViewerViewBtn.addEventListener('click', () => setActiveView('viewer'));
 
@@ -983,6 +1009,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         
         errorMsg.classList.add("hidden");
+        resetProgressForNewRun();
         // Flip the UI into the running state before the POST resolves so double-submits are blocked
         // and the SSE connection is ready to receive the first progress event immediately.
         setProcessingState(true);
@@ -1045,8 +1072,11 @@ document.addEventListener('DOMContentLoaded', () => {
         overwriteCheck.disabled = processing;
 
         if (processing) {
-            startBtn.disabled = true;
-            startBtn.innerHTML = `<svg class="animate-spin -ml-1 mr-2 h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> Processing...`;
+            startBtn.classList.add('hidden');
+            if (stopBtn) {
+                stopBtn.classList.remove('hidden');
+                stopBtn.disabled = false;
+            }
             
             statusText.textContent = "Running";
             statusDot.className = "w-2 h-2 rounded-full bg-green-500 animate-pulse";
@@ -1056,8 +1086,12 @@ document.addEventListener('DOMContentLoaded', () => {
             
             connectSSE();
         } else {
+            startBtn.classList.remove('hidden');
+            if (stopBtn) {
+                stopBtn.classList.add('hidden');
+                stopBtn.disabled = false;
+            }
             startBtn.disabled = false;
-            startBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg> Start Tagging`;
             
             statusText.textContent = "Idle";
             statusDot.className = "w-2 h-2 rounded-full bg-zinc-500";
@@ -1083,17 +1117,25 @@ document.addEventListener('DOMContentLoaded', () => {
                     // Completion is signaled on the stream, not the original POST response.
                     setProcessingState(false);
 
-                    if (data.total === 0) {
+                    const resultStatus = data.result_status || (data.total === 0 ? 'empty_scan' : 'completed');
+                    progressBar.style.width = "100%";
+                    progressBar.classList.remove('bg-primary', 'bg-green-500', 'bg-yellow-500', 'bg-red-500');
+
+                    if (resultStatus === 'empty_scan') {
                         progressTitle.textContent = "No Images Found";
                         progressFile.textContent = "The selected path contains no supported image files.";
-                        progressBar.style.width = "100%";
-                        progressBar.classList.remove('bg-primary', 'bg-green-500');
                         progressBar.classList.add('bg-yellow-500');
+                    } else if (resultStatus === 'stopped') {
+                        progressTitle.textContent = "Stopped";
+                        progressFile.textContent = "Job was stopped by user.";
+                        progressBar.classList.add('bg-yellow-500');
+                    } else if (resultStatus === 'failed') {
+                        progressTitle.textContent = "Failed";
+                        progressFile.textContent = data.result_message || "Job failed. Check terminal output for details.";
+                        progressBar.classList.add('bg-red-500');
                     } else {
                         progressTitle.textContent = "Finished";
                         progressFile.textContent = "Task complete.";
-                        progressBar.style.width = "100%";
-                        progressBar.classList.remove('bg-primary');
                         progressBar.classList.add('bg-green-500');
                     }
                     if (typeof data.runtime_seconds === 'number') {
@@ -1103,7 +1145,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
                 
                 progressBar.classList.add('bg-primary');
-                progressBar.classList.remove('bg-green-500');
+                progressBar.classList.remove('bg-green-500', 'bg-yellow-500', 'bg-red-500');
                 
                 progressTitle.textContent = "Tagging";
                 

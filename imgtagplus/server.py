@@ -30,6 +30,14 @@ from imgtagplus.metadata import read_xmp_tags, sidecar_path_for_image
 from imgtagplus.profiler import get_model_recommendations, get_profiler_summary
 from imgtagplus.scanner import IMAGE_EXTENSIONS, scan
 
+
+class JobCancelledError(BaseException):
+    """Raised by the progress callback when the user requests a stop.
+
+    Inherits from BaseException (not Exception) so it is NOT swallowed by the
+    ``except Exception`` handler in app.run that absorbs per-callback errors.
+    """
+
 static_dir = Path(__file__).parent / "static"
 static_dir.mkdir(exist_ok=True)
 
@@ -44,6 +52,7 @@ _job_state_lock = threading.Lock()
 _job_started_at: datetime | None = None
 _job_started_monotonic: float | None = None
 _last_job_runtime_seconds: int | None = None
+_stop_requested = False
 _sse_semaphore = asyncio.Semaphore(5)
 
 _rate_limits: dict[str, collections.deque] = {}
@@ -338,6 +347,20 @@ async def get_status():
     return _job_status_payload()
 
 
+@app.post("/api/stop")
+async def stop_job():
+    """Request the current background job to stop."""
+    if not _job_lock.locked():
+        raise HTTPException(status_code=409, detail="No job is currently running")
+    
+    global _stop_requested
+    _stop_requested = True
+    _enqueue_latest(
+        log_queue,
+        {"type": "log", "level": "WARNING", "message": "Stop signal received. Job will stop after completing current image..."},
+    )
+    return {"status": "stop_requested"}
+
 @app.get("/health")
 async def health_check():
     """Return a simple readiness response for local process management."""
@@ -378,8 +401,15 @@ async def start_tagging(request: Request):
     _drain_queue(progress_queue)
     started_at = _mark_job_started()
     _last_progress = {"current": 0, "total": 0}
+    worker_result = {"status": "unknown", "message": None}
+    
+    global _stop_requested
+    _stop_requested = False
 
     def progress_callback(current, total, filename):
+        global _stop_requested
+        if _stop_requested:
+            raise JobCancelledError("Job stopped by user")
         _last_progress["current"] = current
         _last_progress["total"] = total
         _enqueue_latest(
@@ -420,27 +450,48 @@ async def start_tagging(request: Request):
                     "runtime_seconds": _current_runtime_seconds(),
                 },
             )
-            app_run(args, progress_callback=progress_callback)
+            exit_code = app_run(args, progress_callback=progress_callback)
+            if exit_code != 0:
+                worker_result["status"] = "failed"
+                worker_result["message"] = f"Job exited with code {exit_code}. Check terminal output for details."
+            else:
+                worker_result["status"] = "completed"
 
-            if _last_progress["total"] == 0:
+            if worker_result["status"] == "completed" and _last_progress["total"] == 0:
+                worker_result["status"] = "empty_scan"
                 _enqueue_latest(
                     log_queue,
                     {"type": "log", "level": "WARNING",
                      "message": f"No images found at {input_path}. "
                                 "Check that the path contains supported image files."},
                 )
+        except JobCancelledError:
+            worker_result["status"] = "stopped"
+            worker_result["message"] = "Job stopped by user"
         except Exception as e:
+            worker_result["status"] = "failed"
+            worker_result["message"] = str(e)
             _enqueue_latest(
                 log_queue,
                 {"type": "log", "level": "ERROR", "message": f"Worker crashed: {e}"},
             )
         finally:
+            global _stop_requested
+            _stop_requested = False
             runtime_seconds = _mark_job_finished()
             try:
                 _job_lock.release()
             except RuntimeError:
                 pass
-            _enqueue_latest(progress_queue, {"type": "done", "runtime_seconds": runtime_seconds})
+            _enqueue_latest(
+                progress_queue,
+                {
+                    "type": "done",
+                    "runtime_seconds": runtime_seconds,
+                    "result_status": worker_result["status"],
+                    "result_message": worker_result["message"],
+                },
+            )
 
     thread = threading.Thread(target=run_worker, daemon=True)
     thread.start()
@@ -485,6 +536,8 @@ async def sse_stream():
                                 "filename": prog.get('filename', ''),
                                 "done": is_done,
                                 "runtime_seconds": prog.get('runtime_seconds'),
+                                "result_status": prog.get('result_status'),
+                                "result_message": prog.get('result_message'),
                             })
                             yield f"data: {event_data}\n\n"
                             await asyncio.sleep(0.01)

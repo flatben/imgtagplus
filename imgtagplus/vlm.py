@@ -29,6 +29,17 @@ ONNX_MODEL_REVISIONS: dict[str, str] = {
 }
 
 
+def _validate_florence_transformers_version(version: str) -> None:
+    """Raise a clear error when Florence is used with unsupported transformers versions."""
+    major, minor = (int(x) for x in version.split(".")[:2])
+    if (major, minor) >= (5, 0):
+        raise RuntimeError(
+            "Florence models require transformers>=4.44.2,<5.0.0. "
+            f"Detected {version}. "
+            "Please install a supported version (for example: pip install 'transformers>=4.44.2,<5.0.0')."
+        )
+
+
 def _resolve_florence_revision(model_id: str) -> str | None:
     """Return a pinned revision for known Florence variants.
 
@@ -106,6 +117,7 @@ class FlorenceTagger:
         # patches are changed.
         import transformers
         from transformers import AutoModelForCausalLM, AutoProcessor
+        _validate_florence_transformers_version(transformers.__version__)
         _tf_version = tuple(int(x) for x in transformers.__version__.split(".")[:2])
         if _tf_version >= (4, 44) and _tf_version < (5, 0):
             # 1. Patch TokenizersBackend for processor initialization

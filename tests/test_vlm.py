@@ -1,6 +1,12 @@
 from pathlib import Path
 
-from imgtagplus.vlm import _florence_pretrained_kwargs, _resolve_florence_revision
+import pytest
+
+from imgtagplus.vlm import (
+    _florence_pretrained_kwargs,
+    _resolve_florence_revision,
+    _validate_florence_transformers_version,
+)
 
 
 def test_resolve_florence_revision_uses_variant_specific_pins() -> None:
@@ -26,3 +32,12 @@ def test_florence_pretrained_kwargs_skip_revision_for_unknown_models() -> None:
     assert "trust_remote_code" not in kwargs
     assert kwargs["cache_dir"] == "/tmp/cache"
     assert "revision" not in kwargs
+
+
+def test_validate_florence_transformers_version_rejects_5x() -> None:
+    with pytest.raises(RuntimeError, match="transformers>=4.44.2,<5.0.0"):
+        _validate_florence_transformers_version("5.3.0")
+
+
+def test_validate_florence_transformers_version_allows_supported_range() -> None:
+    _validate_florence_transformers_version("4.44.2")

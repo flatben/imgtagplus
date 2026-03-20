@@ -163,3 +163,78 @@ def test_status_reports_runtime_details_when_idle(tagging_client) -> None:
         "started_at": None,
         "runtime_seconds": None,
     }
+
+
+def test_done_event_reports_empty_scan_when_no_images_processed(tagging_client) -> None:
+    client, sandbox_root, _ = tagging_client
+    image_path = sandbox_root / "photo.jpg"
+    image_path.write_bytes(b"image")
+
+    response = client.post("/api/tag", json={"input": str(image_path)})
+
+    assert response.status_code == 200
+
+    progress_events = []
+    while not server.progress_queue.empty():
+        progress_events.append(server.progress_queue.get_nowait())
+
+    done_event = next(event for event in progress_events if event.get("type") == "done")
+    assert done_event["result_status"] == "empty_scan"
+    assert done_event["result_message"] is None
+
+
+def test_done_event_reports_failed_when_worker_crashes(tagging_client, monkeypatch) -> None:
+    client, sandbox_root, _ = tagging_client
+    image_path = sandbox_root / "photo.jpg"
+    image_path.write_bytes(b"image")
+
+    def crash_run(args, progress_callback=None):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(server, "app_run", crash_run)
+
+    response = client.post("/api/tag", json={"input": str(image_path)})
+
+    assert response.status_code == 200
+
+    progress_events = []
+    while not server.progress_queue.empty():
+        progress_events.append(server.progress_queue.get_nowait())
+    done_event = next(event for event in progress_events if event.get("type") == "done")
+    assert done_event["result_status"] == "failed"
+    assert done_event["result_message"] == "boom"
+
+    log_events = []
+    while not server.log_queue.empty():
+        log_events.append(server.log_queue.get_nowait())
+
+    assert any(event.get("level") == "ERROR" for event in log_events)
+    assert not any("No images found" in event.get("message", "") for event in log_events)
+
+
+def test_done_event_reports_failed_when_worker_returns_nonzero(tagging_client, monkeypatch) -> None:
+    client, sandbox_root, _ = tagging_client
+    image_path = sandbox_root / "photo.jpg"
+    image_path.write_bytes(b"image")
+
+    def fail_run(args, progress_callback=None):
+        return 1
+
+    monkeypatch.setattr(server, "app_run", fail_run)
+
+    response = client.post("/api/tag", json={"input": str(image_path)})
+
+    assert response.status_code == 200
+
+    progress_events = []
+    while not server.progress_queue.empty():
+        progress_events.append(server.progress_queue.get_nowait())
+    done_event = next(event for event in progress_events if event.get("type") == "done")
+    assert done_event["result_status"] == "failed"
+    assert "Job exited with code 1" in done_event["result_message"]
+
+    log_events = []
+    while not server.log_queue.empty():
+        log_events.append(server.log_queue.get_nowait())
+
+    assert not any("No images found" in event.get("message", "") for event in log_events)
