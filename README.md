@@ -16,6 +16,14 @@
 - **Interactive CLI Manager** — Manage the local web server or execute headless tasks.
 - **Detailed logging** — Full debug log written to file
 
+## Screenshots
+
+### Tagger
+![ImgTagPlus Tagger UI](imgtagplus_tagger.png)
+
+### Viewer
+![ImgTagPlus Viewer UI](imgtagplus_viewer.png)
+
 ## Quick Start
 
 ### Install
